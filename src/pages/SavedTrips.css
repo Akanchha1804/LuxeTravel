@@ -1,0 +1,122 @@
+.saved-trips-container {
+  background-color: #190019;
+  min-height: 100vh;
+  padding: 6rem 2rem;
+  color: #fbe4d8;
+}
+
+.saved-trips-container h1 {
+  text-align: center;
+  font-size: 3rem;
+  margin-bottom: 3rem;
+  background: linear-gradient(90deg, #fbe4d8 0%, #dfb6b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.trips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.trip-card {
+  background: #2b124c;
+  border: 1px solid #522b5b;
+  border-radius: 15px;
+  padding: 2rem;
+  transition:
+    transform 0.3s,
+    box-shadow 0.3s;
+}
+
+.trip-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(133, 79, 108, 0.3);
+  border-color: #854f6c;
+}
+
+.trip-header-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 1.5rem;
+}
+
+.trip-header-card h3 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: #fbe4d8;
+}
+
+.status-badge {
+  background: #522b5b;
+  color: #dfb6b2;
+  padding: 0.3rem 0.8rem;
+  border-radius: 15px;
+  font-size: 0.8rem;
+  border: 1px solid #854f6c;
+}
+
+.trip-details {
+  margin-bottom: 2rem;
+}
+
+.trip-details p {
+  color: #dfb6b2;
+  margin: 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.view-btn {
+  width: 100%;
+  padding: 1rem;
+  background: transparent;
+  border: 2px solid #854f6c;
+  color: #fbe4d8;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.view-btn:hover {
+  background: linear-gradient(135deg, #522b5b, #854f6c);
+  border-color: transparent;
+}
+
+.no-trips {
+  text-align: center;
+  margin-top: 4rem;
+}
+
+.no-trips p {
+  font-size: 1.5rem;
+  color: #dfb6b2;
+  margin-bottom: 2rem;
+}
+
+.start-btn {
+  padding: 1rem 2.5rem;
+  background: linear-gradient(135deg, #522b5b, #854f6c);
+  color: #fbe4d8;
+  border: none;
+  border-radius: 50px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  font-weight: bold;
+  transition: transform 0.2s;
+}
+
+.start-btn:hover {
+  transform: scale(1.05);
+}
+
+.loading {
+  text-align: center;
+  font-size: 1.5rem;
+  color: #dfb6b2;
+}

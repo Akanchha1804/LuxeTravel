@@ -1,47 +1,145 @@
 .navbar {
-    background-color: #333;
-    padding: 1rem 0;
-    position: fixed;
-    top: 0;
-    width: 100%;
-    z-index: 1000;
+  background: rgba(5, 10, 20, 0.95);
+  height: 80px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+  backdrop-filter: blur(10px);
 }
 
 .navbar-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: 1400px;
+  padding: 0 2rem;
 }
 
 .navbar-logo {
-    color: #fff;
-    text-decoration: none;
-    font-size: 1.5rem;
-    font-weight: bold;
+  color: var(--accent-gold);
+  font-family: var(--font-heading);
+  font-size: 1.8rem;
+  text-decoration: none;
+  font-weight: bold;
+  letter-spacing: 1px;
 }
 
+/* Hamburger Menu Icon - Always Visible */
+.menu-icon {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  gap: 6px;
+  z-index: 1001;
+  /* Ensure it's above the menu */
+}
+
+.bar {
+  width: 30px;
+  height: 3px;
+  background-color: var(--accent-gold);
+  transition: all 0.3s ease-in-out;
+  border-radius: 2px;
+}
+
+/* Hamburger Animation */
+.bar.open:nth-child(1) {
+  transform: rotate(45deg) translate(7px, 6px);
+}
+
+.bar.open:nth-child(2) {
+  opacity: 0;
+}
+
+.bar.open:nth-child(3) {
+  transform: rotate(-45deg) translate(7px, -6px);
+}
+
+/* Slide-out Menu */
 .navbar-menu {
-    display: flex;
-    list-style: none;
-    margin: 0;
-    padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 400px;
+  /* Fixed width for desktop */
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: -450px;
+  /* Hide completely off-screen */
+  background: rgba(5, 10, 20, 0.98);
+  backdrop-filter: blur(15px);
+  transition: all 0.5s cubic-bezier(0.77, 0.2, 0.05, 1);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  z-index: 1000;
+  box-shadow: 5px 0 25px rgba(0, 0, 0, 0.5);
+  border-right: 1px solid rgba(212, 175, 55, 0.1);
+}
+
+.navbar-menu.active {
+  left: 0;
 }
 
 .navbar-menu li {
-    margin-left: 2rem;
+  margin: 1.5rem 0;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
 }
 
-.navbar-menu a {
-    color: #fff;
-    text-decoration: none;
-    padding: 0.5rem 1rem;
-    transition: background-color 0.3s;
+.navbar-menu.active li {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.2s;
 }
 
-.navbar-menu a:hover {
-    background-color: #555;
-    border-radius: 4px;
+.navbar-menu li a,
+.nav-btn {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 2rem;
+  font-family: var(--font-heading);
+  transition: var(--transition-smooth);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.navbar-menu li a:hover,
+.nav-btn:hover {
+  color: var(--accent-gold);
+  transform: scale(1.1);
+}
+
+/* Specific style for Logout/Login button in menu */
+.nav-btn {
+  border: 1px solid var(--accent-gold);
+  padding: 0.5rem 2rem;
+  border-radius: 30px;
+  font-size: 1.5rem;
+}
+
+.nav-btn:hover {
+  background: var(--accent-gold);
+  color: #000;
+}
+
+/* Mobile Responsive: Full width on small screens */
+@media (max-width: 768px) {
+  .navbar-menu {
+    width: 100%;
+    left: -100%;
+  }
+
+  .navbar-menu.active {
+    left: 0;
+  }
 }

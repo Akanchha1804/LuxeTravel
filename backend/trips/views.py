@@ -4,13 +4,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
-from .models import Trip, ChatRoom, Message, UserActivity, Booking, Destination
+from .models import Trip, ChatRoom, UserActivity, Booking, Destination
 from .serializers import TripSerializer, ChatRoomSerializer, MessageSerializer, UserSerializer, UserActivitySerializer, BookingSerializer, DestinationSerializer
 import openai
 from django.conf import settings
 import json
-import os
-import requests
 
 
 
@@ -714,3 +712,103 @@ def login(request):
         return Response({'error': 'Invalid Credentials'}, status=400)
     token, created = Token.objects.get_or_create(user=user)
     return Response({'token': token.key, 'username': user.username})
+
+# Phase 4: Social & Collaboration Endpoints
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def make_trip_public(request, trip_id):
+    """Make a trip public and generate shareable link"""
+    try:
+        trip = Trip.objects.get(id=trip_id, user=request.user)
+        trip.is_public = True
+        trip.save()  # This will auto-generate share_code if not exists
+        
+        return Response({
+            'success': True,
+            'share_code': trip.share_code,
+            'share_url': f"/shared/{trip.share_code}"
+        })
+    except Trip.DoesNotExist:
+        return Response({'error': 'Trip not found'}, status=404)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def view_shared_trip(request, share_code):
+    """View a public trip by share code"""
+    try:
+        trip = Trip.objects.get(share_code=share_code, is_public=True)
+        serializer = TripSerializer(trip)
+        return Response(serializer.data)
+    except Trip.DoesNotExist:
+        return Response({'error': 'Trip not found or not public'}, status=404)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def fork_trip(request, share_code):
+    """Fork (clone) a public trip"""
+    try:
+        original_trip = Trip.objects.get(share_code=share_code, is_public=True)
+        
+        # Create a new trip as a fork
+        forked_trip = Trip.objects.create(
+            user=request.user,
+            destination=original_trip.destination,
+            start_date=original_trip.start_date,
+            end_date=original_trip.end_date,
+            budget=original_trip.budget,
+            preferences=original_trip.preferences,
+            itinerary=original_trip.itinerary,
+            forked_from=original_trip
+        )
+        
+        # Increment fork count on original
+        original_trip.fork_count += 1
+        original_trip.save()
+        
+        serializer = TripSerializer(forked_trip)
+        return Response({
+            'success': True,
+            'trip': serializer.data,
+            'message': f'Successfully forked trip to {original_trip.destination}'
+        })
+    except Trip.DoesNotExist:
+        return Response({'error': 'Trip not found or not public'}, status=404)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_trip_chatroom(request, trip_id):
+    """Create a private chatroom for a trip"""
+    try:
+        trip = Trip.objects.get(id=trip_id, user=request.user)
+        
+        # Check if chatroom already exists
+        if trip.chat_room:
+            serializer = ChatRoomSerializer(trip.chat_room)
+            return Response({
+                'success': True,
+                'chatroom': serializer.data,
+                'message': 'Chatroom already exists'
+            })
+        
+        # Create new private chatroom
+        chatroom = ChatRoom.objects.create(
+            name=f"{trip.destination} Trip Chat",
+            description=f"Private chat for {trip.destination} trip ({trip.start_date} - {trip.end_date})",
+            is_private=True
+        )
+        
+        trip.chat_room = chatroom
+        trip.save()
+        
+        serializer = ChatRoomSerializer(chatroom)
+        return Response({
+            'success': True,
+            'chatroom': serializer.data,
+            'message': 'Chatroom created successfully'
+        })
+    except Trip.DoesNotExist:
+        return Response({'error': 'Trip not found'}, status=404)

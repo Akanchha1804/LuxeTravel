@@ -34,7 +34,21 @@ class Trip(models.Model):
     preferences = models.TextField(blank=True, null=True)  # Store user preferences
     itinerary = models.TextField(blank=True, null=True)
     session_id = models.CharField(max_length=255, blank=True, null=True)  # Link to user activity
+    
+    # Phase 4: Social & Collaboration
+    share_code = models.CharField(max_length=12, unique=True, blank=True, null=True, db_index=True)
+    is_public = models.BooleanField(default=False)
+    chat_room = models.ForeignKey('ChatRoom', on_delete=models.SET_NULL, null=True, blank=True, related_name='trip')
+    forked_from = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='forks')
+    fork_count = models.IntegerField(default=0)
+    
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Generate share code if not exists
+        if not self.share_code:
+            self.share_code = str(uuid.uuid4())[:12].upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.destination} ({self.start_date} - {self.end_date})"
@@ -123,7 +137,7 @@ class ChatRoom(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        if self.is_private and not self.room_code:
+        if not self.room_code:
             self.room_code = str(uuid.uuid4())[:8].upper()
         super().save(*args, **kwargs)
 

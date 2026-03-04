@@ -1,0 +1,106 @@
+@import url("https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600;700&display=swap");
+
+:root {
+  /* Colors */
+  --bg-primary: #050a14;
+  /* Deep Navy/Black */
+  --bg-secondary: #0f172a;
+  /* Dark Slate */
+  --bg-card: rgba(20, 30, 50, 0.8);
+  /* Glassy Dark */
+
+  --text-primary: #f5f5dc;
+  /* Beige/Cream */
+  --text-secondary: #b0c4de;
+  /* Light Steel Blue */
+  --text-muted: #708090;
+  /* Slate Gray */
+
+  --accent-gold: #d4af37;
+  /* Metallic Gold */
+  --accent-gold-hover: #ffd700;
+  /* Bright Gold */
+  --accent-silver: #c0c0c0;
+
+  --border-gold: 1px solid rgba(212, 175, 55, 0.3);
+  --shadow-gold: 0 4px 20px rgba(212, 175, 55, 0.15);
+
+  /* Fonts */
+  --font-heading: "Playfair Display", serif;
+  --font-body: "Lato", sans-serif;
+
+  /* Transitions */
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  color: var(--accent-gold);
+  letter-spacing: 0.5px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--accent-gold);
+  border-radius: 4px;
+}
+
+/* Global Button Styles */
+button {
+  font-family: var(--font-body);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-gold), #b8860b);
+  color: #000;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 30px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  box-shadow: var(--shadow-gold);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(212, 175, 55, 0.4);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--accent-gold);
+  border: 1px solid var(--accent-gold);
+  padding: 0.8rem 1.5rem;
+  border-radius: 30px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.btn-secondary:hover {
+  background: rgba(212, 175, 55, 0.1);
+  transform: translateY(-2px);
+}

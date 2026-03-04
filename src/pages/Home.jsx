@@ -1,108 +1,118 @@
-import React, { useState, useEffect } from "react";
-import "./Home.css";
+import React from "react";
+import { useNavigate } from "react-router-dom";
 import "@fortawesome/fontawesome-free/css/all.min.css";
+import "./Home.css";
 
-export default function Home() {
-    const [navOpen, setNavOpen] = useState(false);
-    const [currentImage, setCurrentImage] = useState(0);
+const Home = () => {
+  const navigate = useNavigate();
 
-    // Slideshow images
-    const heroImages = [
-        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e", // beach
-        "https://images.unsplash.com/photo-1506744038136-46273834b3fb", // mountain
-        "https://images.unsplash.com/photo-1505761671935-60b3a7427bad", // city
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee", // desert
-    ];
+  return (
+    <div className="home-container">
+      <div className="home-background">
+        <div className="overlay"></div>
+        <div className="floating-shape shape-1"></div>
+        <div className="floating-shape shape-2"></div>
+        <div className="floating-shape shape-3"></div>
+      </div>
 
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setCurrentImage((prev) => (prev + 1) % heroImages.length);
-        }, 5000);
-        return () => clearInterval(interval);
-    }, [heroImages.length]);
-
-    return (
-        <div className="home-lux">
-            {/* Sidebar */}
-            <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-                <button className="close-btn" onClick={() => setNavOpen(false)}>
-                    &times;
-                </button>
-                <nav>
-                    <a href="/">Home</a>
-                    <a href="/planner">Plan Trip</a>
-                    <a href="/bookings">Bookings</a>
-                    <a href="/dashboard">Dashboard</a>
-                    <a href="/about">About</a>
-                    <a href="/contact">Contact</a>
-                </nav>
-            </aside>
-
-            {/* Hamburger */}
-            <div className="hamburger" onClick={() => setNavOpen(true)}>
-                <i className="fa-solid fa-bars"></i>
-            </div>
-
-            {/* Hero Section */}
-            <section className="hero">
-                {heroImages.map((img, index) => (
-                    <div
-                        key={index}
-                        className={`hero-bg ${index === currentImage ? "active" : ""}`}
-                        style={{ backgroundImage: `url(${img})` }}
-                    ></div>
-                ))}
-                <div className="hero-overlay"></div>
-                <div className="hero-content">
-                    <h1>Luxury. Motion. Memory.</h1>
-                    <p>
-                        Experience AI-crafted journeys that redefine how luxury and
-                        technology blend.
-                    </p>
-                    <div className="search-bar">
-                        <input
-                            type="text"
-                            placeholder="Search destinations, moods, or inspirations..."
-                        />
-                        <button>
-                            <i className="fa-solid fa-magnifying-glass"></i> Discover
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            {/* Features Section */}
-            <section className="features">
-                <h2>Signature Experiences</h2>
-                <div className="feature-grid">
-                    <Feature icon="fa-robot" title="AI Itineraries" desc="Tailored travel crafted by intelligent design." />
-                    <Feature icon="fa-bolt" title="Instant Booking" desc="Seamless reservations wrapped in luxury." />
-                    <Feature icon="fa-map-marked-alt" title="Trip Suggestions" desc="Explore hidden gems curated by intuition." />
-                    <Feature icon="fa-image" title="Mood Boards" desc="Visualize your journey in living color." />
-                    <Feature icon="fa-users" title="Group Chatrooms" desc="Plan together, elegantly and effortlessly." />
-                    <Feature icon="fa-chart-line" title="Dashboards" desc="Your travel universe, beautifully organized." />
-                </div>
-            </section>
-
-            {/* Footer */}
-            <footer>
-                <p>© 2025 TripMind — Crafted in code and curiosity.</p>
-                <div className="footer-links">
-                    <a href="/">Privacy</a> | <a href="/">Terms</a> | <a href="/">Support</a>
-                </div>
-            </footer>
+      {/* Hero Section */}
+      <section className="hero-section">
+        <div className="hero-content">
+          <h1>
+            Discover Your <span className="highlight">Next Adventure</span>
+          </h1>
+          <p>
+            Experience the world with AI-curated itineraries tailored just for
+            you. Luxurious, seamless, and unforgettable journeys await.
+          </p>
+          <button className="cta-button" onClick={() => navigate("/planner")}>
+            Start Planning Your Trip →
+          </button>
         </div>
-    );
-}
+      </section>
 
-function Feature({ icon, title, desc }) {
-    return (
-        <div className="feature-card">
-            <div className="icon-glow">
-                <i className={`fa-solid ${icon}`}></i>
-            </div>
-            <h3>{title}</h3>
-            <p>{desc}</p>
+      {/* Features Section */}
+      <section className="features-section">
+        <h2>Everything You Need for the Perfect Trip</h2>
+        <div className="features-grid">
+          <FeatureCard
+            icon="fas fa-magic"
+            title="AI-Powered Itineraries"
+            desc="Get personalized day-by-day plans crafted by advanced AI"
+            onClick={() => navigate("/planner")}
+          />
+          <FeatureCard
+            icon="fas fa-palette"
+            title="Mood Board Creator"
+            desc="Visualize your dream destination with stunning imagery"
+            onClick={() => navigate("/moodboard")}
+          />
+          <FeatureCard
+            icon="fas fa-comments"
+            title="Trip Chatrooms"
+            desc="Connect with fellow travelers and plan together"
+            onClick={() => navigate("/chatroom")}
+          />
+          <FeatureCard
+            icon="fas fa-map-marked-alt"
+            title="Smart Navigation"
+            desc="Interactive maps with routes and local insights"
+            onClick={() => navigate("/planner")}
+          />
+          <FeatureCard
+            icon="fas fa-suitcase"
+            title="Packing Assistant"
+            desc="AI-generated packing lists tailored to your trip"
+            onClick={() => navigate("/planner")}
+          />
+          <FeatureCard
+            icon="fas fa-hotel"
+            title="Seamless Bookings"
+            desc="Book flights, hotels, and transport in one place"
+            onClick={() => navigate("/booking")}
+          />
         </div>
-    );
-}
+      </section>
+
+      {/* Stats Section */}
+      <section className="stats-section">
+        <div className="stat-item">
+          <h3>10K+</h3>
+          <p>Trips Planned</p>
+        </div>
+        <div className="stat-item">
+          <h3>150+</h3>
+          <p>Destinations</p>
+        </div>
+        <div className="stat-item">
+          <h3>98%</h3>
+          <p>Satisfaction</p>
+        </div>
+      </section>
+
+      {/* Bottom CTA */}
+      <section className="bottom-cta">
+        <h2>Ready to Explore the World?</h2>
+        <p>Let AI craft your perfect itinerary in seconds</p>
+        <button
+          className="cta-button-outline"
+          onClick={() => navigate("/planner")}
+        >
+          Get Started Now
+        </button>
+      </section>
+    </div>
+  );
+};
+
+const FeatureCard = ({ icon, title, desc, onClick }) => (
+  <div className="feature-card" onClick={onClick}>
+    <div className="feature-icon">
+      <i className={icon}></i>
+    </div>
+    <h3>{title}</h3>
+    <p>{desc}</p>
+  </div>
+);
+
+export default Home;

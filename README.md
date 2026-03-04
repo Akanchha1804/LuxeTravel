@@ -1,7 +1,7 @@
 # AI Trip Planner
 
 ## Project Structure
-- `AI-Trip-Planner/`: Frontend (React)
+- `src/`, `public/`, `package.json`: Frontend (React)
 - `backend/`: Backend (Django)
 
 ## Setup Instructions
@@ -16,8 +16,8 @@
 5. Run migrations: `python manage.py migrate`
 6. Start server: `python manage.py runserver`
 
-### Frontend
-1. Navigate to `AI-Trip-Planner/`
+### Frontend (Root)
+1. Ensure you are in the project root directory.
 2. Install dependencies: `npm install`
 3. Start development server: `npm start`
 

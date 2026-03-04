@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-sdq@-$+d*z@7qa@kvgj*y&@k@-zjm21zdu*m#__bqi57+xm&ng
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']  # Allow all hosts for development (mobile testing)
 
 
 # Application definition
@@ -98,9 +98,9 @@ REST_FRAMEWORK = {
     ],
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-]
+
+# Allow CORS from all origins for mobile testing
+CORS_ALLOW_ALL_ORIGINS = True
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')

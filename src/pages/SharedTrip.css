@@ -1,0 +1,102 @@
+.shared-trip-container {
+  max-width: 1000px;
+  margin: 80px auto 2rem;
+  padding: 2rem;
+  color: #fbe4d8;
+  background: #190019;
+  min-height: 100vh;
+}
+
+.shared-header {
+  text-align: center;
+  margin-bottom: 3rem;
+  background: linear-gradient(135deg, #2b124c, #522b5b);
+  padding: 2rem;
+  border-radius: 20px;
+  border: 1px solid #522b5b;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.shared-header h1 {
+  margin: 0 0 1rem 0;
+  font-size: 2.5rem;
+  color: #fbe4d8;
+}
+
+.trip-meta {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.trip-meta span {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 1px solid #854f6c;
+}
+
+.btn-fork {
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #ffd700, #ffa500);
+  /* Gold/Orange for Fork */
+  color: #190019;
+  border: none;
+  border-radius: 30px;
+  font-weight: bold;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition:
+    transform 0.2s,
+    box-shadow 0.3s;
+  box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+}
+
+.btn-fork:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.5);
+}
+
+.itinerary-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.preview-day-card {
+  background: #2b124c;
+  padding: 1.5rem;
+  border-radius: 15px;
+  border: 1px solid #522b5b;
+}
+
+.preview-day-card h3 {
+  color: #dfb6b2;
+  border-bottom: 1px solid #522b5b;
+  padding-bottom: 0.5rem;
+  margin-top: 0;
+}
+
+.preview-day-card ul {
+  list-style: none;
+  padding: 0;
+}
+
+.preview-day-card li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(82, 43, 91, 0.5);
+  color: #fbe4d8;
+}
+
+.loading-screen,
+.error-screen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 1.5rem;
+  color: #dfb6b2;
+  background: #190019;
+}
