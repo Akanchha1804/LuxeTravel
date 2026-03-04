@@ -1,4 +1,4 @@
-# AI Trip Planner
+# LuxeTravel: AI Trip Planner
 
 ## Project Structure
 - `src/`, `public/`, `package.json`: Frontend (React)
