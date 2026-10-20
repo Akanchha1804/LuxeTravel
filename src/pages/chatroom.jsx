@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { apiFetch } from "../services/api";
 import "./chatroom.css";
 
 const Chatroom = () => {
-  const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useState("lobby"); // 'lobby' or 'room'
   const [rooms, setRooms] = useState([]);
   const [currentRoom, setCurrentRoom] = useState(null);
@@ -55,37 +56,36 @@ const Chatroom = () => {
 
   const fetchRooms = async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/chatrooms/");
-      if (response.ok) {
-        const data = await response.json();
-        // Filter out private rooms from the public list if the API returns them
-        setRooms(data.filter((r) => !r.is_private));
-      }
+      const data = await apiFetch("/chatrooms/");
+      setRooms(Array.isArray(data) ? data.filter((r) => !r.is_private) : []);
     } catch (err) {
       console.error("Error fetching rooms:", err);
     }
   };
 
-  const startPolling = (roomId) => {
+  const startPolling = (roomId, roomCode) => {
     stopPolling();
-    fetchMessages(roomId); // Initial fetch
-    pollInterval.current = setInterval(() => fetchMessages(roomId), 2000); // Poll every 2s
+    fetchMessages(roomId, roomCode); // Initial fetch
+    pollInterval.current = setInterval(
+      () => fetchMessages(roomId, roomCode),
+      2000,
+    ); // Poll every 2s
   };
 
   const stopPolling = () => {
-    if (pollInterval.current) clearInterval(pollInterval.current);
+    if (pollInterval.current) {
+      clearInterval(pollInterval.current);
+      pollInterval.current = null;
+    }
   };
 
-  const fetchMessages = async (roomId) => {
+  const fetchMessages = async (roomId, roomCode) => {
     if (!roomId) return;
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/chatrooms/${roomId}/messages/`,
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(data);
-      }
+      const data = await apiFetch(`/chatrooms/${roomId}/messages/`, {
+        headers: roomCode ? { "X-Room-Code": roomCode } : {},
+      });
+      setMessages(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Error fetching messages:", err);
     }
@@ -94,22 +94,22 @@ const Chatroom = () => {
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
     try {
-      const response = await fetch("http://localhost:8000/api/chatrooms/", {
+      const room = await apiFetch("/chatrooms/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newRoomData),
+        body: newRoomData,
       });
-
-      if (response.ok) {
-        const room = await response.json();
-        setShowCreateModal(false);
-        setNewRoomData({ name: "", description: "", is_private: false });
-        joinRoom(room);
-        if (!room.is_private) fetchRooms(); // Refresh list if public
-      }
+      setShowCreateModal(false);
+      setNewRoomData({ name: "", description: "", is_private: false });
+      joinRoom(room);
+      if (!room.is_private) fetchRooms(); // Refresh list if public
     } catch (err) {
-      setError("Failed to create room");
+      setError(
+        err.status === 401
+          ? "Please log in to create a chatroom."
+          : err.message || "Failed to create room",
+      );
     } finally {
       setLoading(false);
     }
@@ -120,24 +120,15 @@ const Chatroom = () => {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(
-        "http://localhost:8000/api/chatrooms/join_private/",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room_code: privateCode }),
-        },
-      );
-
-      if (response.ok) {
-        const room = await response.json();
-        joinRoom(room);
-        setPrivateCode("");
-      } else {
-        setError("Invalid Room Code");
-      }
+      const room = await apiFetch("/chatrooms/join_private/", {
+        method: "POST",
+        auth: false,
+        body: { room_code: privateCode },
+      });
+      joinRoom(room);
+      setPrivateCode("");
     } catch (err) {
-      setError("Error joining room");
+      setError(err.status === 404 ? "Invalid Room Code" : err.message || "Error joining room");
     } finally {
       setLoading(false);
     }
@@ -148,20 +139,10 @@ const Chatroom = () => {
     if (!window.confirm("Are you sure you want to delete this room?")) return;
 
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/chatrooms/${roomId}/`,
-        {
-          method: "DELETE",
-        },
-      );
-
-      if (response.ok) {
-        setRooms(rooms.filter((room) => room.id !== roomId));
-      } else {
-        alert("Failed to delete room");
-      }
+      await apiFetch(`/chatrooms/${roomId}/`, { method: "DELETE" });
+      setRooms(rooms.filter((room) => room.id !== roomId));
     } catch (err) {
-      console.error("Error deleting room:", err);
+      alert(err.message || "Failed to delete room");
     }
   };
 
@@ -173,8 +154,33 @@ const Chatroom = () => {
     setCurrentRoom(room);
     setView("room");
     setMessages([]);
-    startPolling(room.id);
+    startPolling(room.id, room.room_code);
   };
+
+  // Open a trip chatroom handed over from the results page.
+  useEffect(() => {
+    const roomId = location.state?.roomId;
+    if (!roomId) return;
+    let cancelled = false;
+    apiFetch(`/chatrooms/${roomId}/`)
+      .then((room) => {
+        if (cancelled) return;
+        setCurrentRoom(room);
+        setView("room");
+        setMessages([]);
+        startPolling(room.id, location.state?.roomCode || room.room_code);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          alert(err.message || "Could not open the trip chatroom.");
+        }
+      });
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const leaveRoom = () => {
     stopPolling();
@@ -188,30 +194,30 @@ const Chatroom = () => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    const senderName = localStorage.getItem("chat_username") || "Guest";
+    const senderName =
+      localStorage.getItem("chat_username") ||
+      localStorage.getItem("username") ||
+      "Guest";
 
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/chatrooms/${currentRoom.id}/messages/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sender: senderName,
-            content: newMessage,
-            room: currentRoom.id,
-          }),
+      await apiFetch(`/chatrooms/${currentRoom.id}/messages/`, {
+        method: "POST",
+        auth: Boolean(localStorage.getItem("token")),
+        headers: currentRoom.room_code
+          ? { "X-Room-Code": currentRoom.room_code }
+          : {},
+        body: {
+          sender: senderName,
+          content: newMessage,
+          room: currentRoom.id,
         },
-      );
+      });
 
-      if (response.ok) {
-        setNewMessage("");
-        fetchMessages(currentRoom.id); // Immediate update
-      } else {
-        console.error("Failed to send message");
-      }
+      setNewMessage("");
+      fetchMessages(currentRoom.id, currentRoom.room_code); // Immediate update
     } catch (err) {
       console.error("Error sending message:", err);
+      alert(err.message || "Could not send the message.");
     }
   };
 
@@ -291,13 +297,15 @@ const Chatroom = () => {
                       >
                         Join Room
                       </button>
-                      <button
-                        onClick={(e) => handleDeleteRoom(room.id, e)}
-                        className="delete-btn"
-                        title="Delete Room"
-                      >
-                        🗑️
-                      </button>
+                      {room.created_by && room.created_by === username && (
+                        <button
+                          onClick={(e) => handleDeleteRoom(room.id, e)}
+                          className="delete-btn"
+                          title="Delete Room"
+                        >
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -409,7 +417,7 @@ const Chatroom = () => {
           {messages.map((msg, idx) => {
             const isMe = msg.sender === username;
             return (
-              <div key={idx} className={`message ${isMe ? "me" : "other"}`}>
+              <div key={msg.id || idx} className={`message ${isMe ? "me" : "other"}`}>
                 <div className="message-content">
                   {!isMe && <span className="user-name">{msg.sender}</span>}
                   <p>{msg.content}</p>

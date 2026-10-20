@@ -1,25 +1,48 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import MapWidget from "../components/MapWidget";
+import {
+  apiFetch,
+  budgetToNumber,
+  daysBetween,
+  formatBudget,
+  getHealth,
+  getToken,
+  parseItinerary,
+} from "../services/api";
 import "./Results.css";
 
 const Results = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { destination, startDate, endDate, budget } = location.state || {};
+  const {
+    destination,
+    startDate,
+    endDate,
+    budget,
+    travelers = 1,
+    preferences,
+    itinerary: incomingItinerary,
+    tripId: incomingTripId,
+  } = location.state || {};
 
-  // Calculate daysCount
-  let daysCount = 3; // Default to 3 days if dates are not available or invalid
-  if (startDate && endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    daysCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end day
-  }
+  const daysCount = daysBetween(startDate, endDate) || 3;
+
+  const initialItinerary = useMemo(
+    () => parseItinerary(incomingItinerary),
+    [incomingItinerary],
+  );
 
   // Phase 4: Social & Collaboration State
   const [shareUrl, setShareUrl] = useState(null);
-  const [tripId, setTripId] = useState(null);
+  const [tripId, setTripId] = useState(incomingTripId || null);
+  const [saved, setSaved] = useState(Boolean(incomingTripId));
+  const [busy, setBusy] = useState(false);
+  const [aiItinerary, setAiItinerary] = useState(initialItinerary);
+  const [aiStatus, setAiStatus] = useState(
+    initialItinerary ? (incomingTripId ? "saved" : "ready") : "idle",
+  );
+  const aiRequested = useRef(false);
 
   // Destination-specific data
   const getDestinationData = (dest, daysCount) => {
@@ -280,7 +303,15 @@ const Results = () => {
 
     // Get base data or default
     let data = destinationDB[dest]
-      ? { ...destinationDB[dest] }
+      ? {
+          ...destinationDB[dest],
+          itinerary: destinationDB[dest].itinerary.map((day) => ({
+            ...day,
+            activities: [...day.activities],
+          })),
+          packing: [...destinationDB[dest].packing],
+          transit: [...destinationDB[dest].transit],
+        }
       : {
           itinerary: [
             {
@@ -388,99 +419,230 @@ const Results = () => {
     return data;
   };
 
-  const destData = getDestinationData(destination, daysCount);
-  const itinerary = destData.itinerary;
-  const packingList = destData.packing;
-  const transitOptions = destData.transit;
+  const destData = useMemo(
+    () => getDestinationData(destination, daysCount),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [destination, daysCount],
+  );
 
-  const handleSaveTrip = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      alert("🔒 Please log in to save trips!");
-      navigate("/login");
-      return;
-    }
+  const aiDays = useMemo(() => {
+    if (!aiItinerary?.days?.length) return [];
+    return aiItinerary.days.map((day, index) => ({
+      ...day,
+      day: day.day || index + 1,
+      title: day.title || `Day ${index + 1}`,
+      activities: Array.isArray(day.activities) ? day.activities : [],
+      imageQuery: day.imageQuery || `${destination} ${day.title || ""}`,
+    }));
+  }, [aiItinerary, destination]);
 
+  const itinerary = aiDays.length ? aiDays : destData.itinerary;
+
+  const packingList =
+    aiItinerary?.packing_list?.length > 0
+      ? aiItinerary.packing_list
+      : destData.packing;
+
+  const transitOptions = useMemo(() => {
+    if (!aiItinerary?.local_transportation?.length) return destData.transit;
+    return aiItinerary.local_transportation.map((option, index) => {
+      if (option && typeof option === "object") return option;
+      const label = String(option);
+      return {
+        name: label,
+        link: `https://www.google.com/search?q=${encodeURIComponent(
+          `${label} ${destination} public transport`,
+        )}`,
+        icon: ["🚇", "🚕", "🚶", "🚌"][index % 4],
+      };
+    });
+  }, [aiItinerary, destData.transit, destination]);
+
+  const generateWithAI = useCallback(async () => {
+    if (!destination || !startDate || !endDate) return false;
+    setAiStatus("loading");
     try {
-      const response = await fetch(`http://localhost:8000/api/trips/`, {
+      const data = await apiFetch("/trips/preview/", {
         method: "POST",
-        headers: {
-          Authorization: `Token ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          destination: destination || "Unknown",
+        auth: false,
+        body: {
+          destination,
           start_date: startDate,
           end_date: endDate,
-          budget: budget,
-        }),
+          budget: budgetToNumber(budget),
+          travelers,
+          preferences,
+        },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setTripId(data.id);
-        alert(
-          "✅ Trip saved successfully! You can now share it or create a chatroom.",
-        );
-      } else {
-        alert("Failed to save trip.");
+      const parsed = parseItinerary(data.itinerary);
+      if (parsed?.days?.length) {
+        setAiItinerary(parsed);
+        setAiStatus("ready");
+        return true;
       }
+      setAiStatus("fallback");
+      return false;
     } catch (error) {
-      console.error("Save error:", error);
-      alert("Error saving trip.");
+      setAiStatus("fallback");
+      return false;
+    }
+  }, [destination, startDate, endDate, budget, travelers, preferences]);
+
+  // If a saved trip is opened without its itinerary in router state, fetch it.
+  useEffect(() => {
+    if (!incomingTripId || initialItinerary) return undefined;
+    let cancelled = false;
+    apiFetch(`/trips/${incomingTripId}/`)
+      .then((trip) => {
+        if (cancelled) return;
+        const parsed = parseItinerary(trip.itinerary_data || trip.itinerary);
+        if (parsed) {
+          setAiItinerary(parsed);
+          setAiStatus("saved");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [incomingTripId, initialItinerary]);
+
+  // Silently upgrade the curated plan with AI when the server has a provider.
+  useEffect(() => {
+    if (initialItinerary || incomingTripId || aiRequested.current) return;
+    aiRequested.current = true;
+    let cancelled = false;
+    getHealth().then((health) => {
+      if (cancelled) return;
+      if (health.ai_provider) {
+        generateWithAI();
+      } else {
+        setAiStatus("fallback");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const itineraryPayload = useMemo(
+    () => ({
+      days: itinerary,
+      packing_list: packingList,
+      local_transportation: transitOptions.map((option) =>
+        typeof option === "string" ? option : option.name,
+      ),
+      mood_board_keywords: aiItinerary?.mood_board_keywords || [
+        `${destination} landmarks`,
+        `${destination} local food`,
+        "travel inspiration",
+      ],
+    }),
+    [itinerary, packingList, transitOptions, aiItinerary, destination],
+  );
+
+  const saveTrip = useCallback(async () => {
+    if (!getToken()) {
+      alert("🔒 Please log in to save trips!");
+      navigate("/login");
+      return null;
+    }
+    if (!destination || !startDate || !endDate) {
+      alert("This trip is missing its destination or dates.");
+      return null;
+    }
+
+    setBusy(true);
+    try {
+      const payload = {
+        destination,
+        start_date: startDate,
+        end_date: endDate,
+        budget: budgetToNumber(budget),
+        preferences: JSON.stringify(preferences || []),
+        itinerary: itineraryPayload,
+      };
+
+      const data = tripId
+        ? await apiFetch(`/trips/${tripId}/`, { method: "PATCH", body: payload })
+        : await apiFetch("/trips/", { method: "POST", body: payload });
+
+      const id = data?.id || tripId;
+      setTripId(id);
+      setSaved(true);
+      return id;
+    } catch (error) {
+      if (error.status === 401) {
+        navigate("/login");
+      } else if (error.status === 429) {
+        alert("Too many requests. Please wait a moment and try again.");
+      } else {
+        alert(error.message || "Could not save this trip.");
+      }
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, [budget, destination, endDate, navigate, preferences, startDate, tripId, itineraryPayload]);
+
+  const handleSaveTrip = async () => {
+    const id = await saveTrip();
+    if (id) {
+      alert("✅ Trip saved. You can now share it or open its chatroom.");
     }
   };
 
   const handleShareTrip = async () => {
-    if (!tripId) {
-      alert("💾 Please save the trip first!");
-      return;
-    }
-    const token = localStorage.getItem("token");
+    if (busy) return;
+    const id = tripId || (await saveTrip());
+    if (!id) return;
+
+    setBusy(true);
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/trips/${tripId}/make-public/`,
-        {
-          method: "POST",
-          headers: { Authorization: `Token ${token}` },
-        },
-      );
-      const data = await response.json();
-      if (response.ok) {
-        setShareUrl(`http://localhost:3000${data.share_url}`);
-        alert("🔗 Trip is now public! Link generated.");
-      } else {
-        alert("Failed to generate share link.");
-      }
-    } catch (err) {
-      console.error("Share error:", err);
-      alert("Error sharing trip.");
+      const data = await apiFetch(`/trips/${id}/make-public/`, {
+        method: "POST",
+      });
+      setShareUrl(`${window.location.origin}${data.share_url}`);
+      alert("🔗 Trip is now public. Share the link below!");
+    } catch (error) {
+      alert(error.message || "Could not create a share link.");
+    } finally {
+      setBusy(false);
     }
   };
 
   const handleCreateChatRoom = async () => {
-    if (!tripId) {
-      alert("💾 Please save the trip first!");
-      return;
-    }
-    const token = localStorage.getItem("token");
+    if (busy) return;
+    const id = tripId || (await saveTrip());
+    if (!id) return;
+
+    setBusy(true);
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/trips/${tripId}/create-chatroom/`,
-        {
-          method: "POST",
-          headers: { Authorization: `Token ${token}` },
+      const data = await apiFetch(`/trips/${id}/create-chatroom/`, {
+        method: "POST",
+      });
+      navigate("/chatroom", {
+        state: {
+          roomId: data.chatroom?.id,
+          roomCode: data.chatroom?.room_code,
+          roomName: data.chatroom?.name,
         },
+      });
+    } catch (error) {
+      alert(error.message || "Could not create the trip chatroom.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (aiStatus === "loading") return;
+    const ok = await generateWithAI();
+    if (!ok) {
+      alert(
+        "AI generation is not available on this deployment, so the curated plan is shown instead. Add an AI key to enable it.",
       );
-      if (response.ok) {
-        alert("💬 Trip Chatroom Created! Redirecting...");
-        navigate("/chatroom");
-      } else {
-        alert("Failed to create chatroom.");
-      }
-    } catch (err) {
-      console.error("Chatroom error:", err);
-      alert("Error creating chatroom.");
     }
   };
 
@@ -493,7 +655,16 @@ const Results = () => {
           <span className="badge">
             📅 {startDate || "TBD"} - {endDate || "TBD"}
           </span>
-          <span className="badge">💰 Budget: ₹{budget || "N/A"}</span>
+          <span className="badge">💰 Budget: {formatBudget(budget)}</span>
+          <span className="badge">
+            {aiStatus === "loading"
+              ? "✨ Personalising with AI..."
+              : aiStatus === "ready"
+                ? "✨ AI itinerary"
+                : aiStatus === "saved"
+                  ? "📋 Saved itinerary"
+                  : "🧭 Curated plan"}
+          </span>
         </div>
       </div>
 
@@ -507,8 +678,17 @@ const Results = () => {
 
           <div className="widget-card weather-widget">
             <h3>☀️ Weather</h3>
-            <p>Current: 28°C Sunny</p>
-            <p>Forecast: Pleasant throughout your trip</p>
+            <p>Check the live forecast before you pack.</p>
+            <a
+              href={`https://www.google.com/search?q=${encodeURIComponent(
+                `${destination} weather forecast`,
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transit-link"
+            >
+              View forecast →
+            </a>
           </div>
 
           <div className="widget-card transport-widget">
@@ -580,7 +760,7 @@ const Results = () => {
           className="btn-secondary"
           onClick={() =>
             navigate("/planner", {
-              state: { destination, startDate, endDate, budget },
+              state: { destination, startDate, endDate, budget, preferences },
             })
           }
         >
@@ -588,17 +768,30 @@ const Results = () => {
         </button>
         <button
           className="btn-secondary"
-          onClick={() => window.location.reload()}
+          onClick={handleRegenerate}
+          disabled={aiStatus === "loading"}
         >
-          🔄 Regenerate
+          {aiStatus === "loading" ? "✨ Generating..." : "🔄 Regenerate"}
         </button>
-        <button className="btn-primary" onClick={handleSaveTrip}>
-          💾 Save Trip
+        <button
+          className="btn-primary"
+          onClick={handleSaveTrip}
+          disabled={busy}
+        >
+          {busy ? "Saving..." : saved ? "💾 Update Trip" : "💾 Save Trip"}
         </button>
-        <button className="btn-secondary" onClick={handleShareTrip}>
+        <button
+          className="btn-secondary"
+          onClick={handleShareTrip}
+          disabled={busy}
+        >
           🔗 Share Trip
         </button>
-        <button className="btn-secondary" onClick={handleCreateChatRoom}>
+        <button
+          className="btn-secondary"
+          onClick={handleCreateChatRoom}
+          disabled={busy}
+        >
           💬 Trip Chat
         </button>
         <button

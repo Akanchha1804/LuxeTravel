@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import amadeusAPI, {
+import {
   searchFlights,
   searchHotelsByCity,
   getCityCode,
@@ -16,7 +16,7 @@ const Booking = () => {
   const [loading, setLoading] = useState(false);
   const [flights, setFlights] = useState([]);
   const [hotels, setHotels] = useState([]);
-  const [searchParams, setSearchParams] = useState({
+  const [searchParams] = useState({
     origin: "Delhi", // Default origin
     destination: destination || "Mumbai",
     departureDate:
@@ -198,6 +198,7 @@ const Booking = () => {
     };
 
     fetchRealData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, searchParams]);
 
   const handleFlightBook = (flight) => {

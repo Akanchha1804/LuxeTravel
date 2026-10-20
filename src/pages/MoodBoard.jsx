@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../services/api";
 import "./MoodBoard.css";
 
 const MoodBoard = () => {
   const [destinations, setDestinations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [filters, setFilters] = useState({
     trip_type: "",
     region: "",
@@ -13,52 +15,51 @@ const MoodBoard = () => {
   const navigate = useNavigate();
 
   const tripTypes = [
-    "Adventure",
-    "Relaxation",
-    "Culture",
-    "Shopping",
-    "Nature",
-    "Luxury",
+    { label: "Adventure", value: "adventure" },
+    { label: "Relaxation", value: "relaxation" },
+    { label: "Culture", value: "cultural" },
+    { label: "Romantic", value: "romantic" },
+    { label: "Family", value: "family" },
+    { label: "Luxury", value: "luxury" },
+    { label: "Budget", value: "budget" },
   ];
   const regions = [
-    "Europe",
-    "Asia",
-    "Americas",
-    "Africa",
-    "Oceania",
-    "Middle East",
+    { label: "Europe", value: "europe" },
+    { label: "Asia", value: "asia" },
+    { label: "North America", value: "north_america" },
+    { label: "South America", value: "south_america" },
+    { label: "Africa", value: "africa" },
+    { label: "Oceania", value: "oceania" },
+    { label: "Middle East", value: "middle_east" },
   ];
   const activities = [
-    "Beaches",
-    "Hiking",
-    "Museums",
-    "Food",
-    "Nightlife",
-    "Shopping",
-    "Wildlife",
-    "Historical",
+    "beaches",
+    "hiking",
+    "museums",
+    "food",
+    "nightlife",
+    "shopping",
+    "wildlife",
+    "historical tours",
   ];
 
   const fetchDestinations = React.useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
-      let url = "http://localhost:8000/api/destinations/";
       const params = new URLSearchParams();
       if (filters.trip_type) params.append("trip_type", filters.trip_type);
       if (filters.region) params.append("region", filters.region);
-      if (filters.activity) params.append("activities", filters.activity);
+      if (filters.activity) params.append("activity", filters.activity);
 
-      if (params.toString()) url += `?${params.toString()}`;
-
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        setDestinations(data);
-      } else {
-        console.error("Failed to fetch destinations");
-      }
-    } catch (error) {
-      console.error("Error fetching destinations:", error);
+      const query = params.toString();
+      const data = await apiFetch(`/destinations/${query ? `?${query}` : ""}`, {
+        auth: false,
+      });
+      setDestinations(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message || "Could not load destinations.");
+      setDestinations([]);
     } finally {
       setLoading(false);
     }
@@ -168,11 +169,11 @@ const MoodBoard = () => {
           <div className="filter-pills">
             {tripTypes.map((type) => (
               <button
-                key={type}
-                className={`filter-pill ${filters.trip_type === type ? "active" : ""}`}
-                onClick={() => handleFilterClick("trip_type", type)}
+                key={type.value}
+                className={`filter-pill ${filters.trip_type === type.value ? "active" : ""}`}
+                onClick={() => handleFilterClick("trip_type", type.value)}
               >
-                {type}
+                {type.label}
               </button>
             ))}
           </div>
@@ -184,11 +185,11 @@ const MoodBoard = () => {
           <div className="filter-pills">
             {regions.map((region) => (
               <button
-                key={region}
-                className={`filter-pill ${filters.region === region ? "active" : ""}`}
-                onClick={() => handleFilterClick("region", region)}
+                key={region.value}
+                className={`filter-pill ${filters.region === region.value ? "active" : ""}`}
+                onClick={() => handleFilterClick("region", region.value)}
               >
-                {region}
+                {region.label}
               </button>
             ))}
           </div>
@@ -222,6 +223,13 @@ const MoodBoard = () => {
 
       {loading ? (
         <div className="loading">Loading destinations...</div>
+      ) : error ? (
+        <div className="no-results">
+          <p>{error}</p>
+          <button onClick={fetchDestinations} className="clear-filters-btn">
+            Try again
+          </button>
+        </div>
       ) : (
         <div className="destinations-grid">
           {destinations.map((dest) => (
@@ -237,10 +245,16 @@ const MoodBoard = () => {
               </div>
               <div className="card-content">
                 <h3>{dest.name}</h3>
-                <p className="region">{dest.country}</p>
+                <p className="region">
+                  {dest.country} · {dest.region.replace(/_/g, " ")}
+                </p>
                 <p className="description">{dest.description}</p>
                 <div className="tags">
-                  <span className="tag">{dest.trip_type}</span>
+                  {(dest.trip_types_list || []).map((type) => (
+                    <span key={type} className="tag">
+                      {type}
+                    </span>
+                  ))}
                 </div>
                 <button
                   onClick={() => handlePlanTrip(dest.name)}

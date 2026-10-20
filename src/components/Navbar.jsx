@@ -1,14 +1,29 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  apiFetch,
+  clearAuth,
+  getStoredUsername,
+  isLoggedIn,
+  subscribeAuth,
+} from "../services/api";
 import "./Navbar.css";
 
 const Navbar = () => {
   const navigate = useNavigate();
-  const token = localStorage.getItem("token");
+  const [token, setToken] = useState(isLoggedIn());
+  const username = getStoredUsername();
   const [isOpen, setIsOpen] = useState(false);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
+  useEffect(() => subscribeAuth(() => setToken(isLoggedIn())), []);
+
+  const handleLogout = async () => {
+    try {
+      await apiFetch("/logout/", { method: "POST" });
+    } catch (error) {
+      // Clearing local credentials is still the right thing to do.
+    }
+    clearAuth();
     navigate("/login");
     setIsOpen(false);
   };
@@ -55,7 +70,8 @@ const Navbar = () => {
             </Link>
           </li>
           {token ? (
-            <li>
+            <li className="nav-user">
+              <span title={username}>👤 {username || "Account"}</span>
               <button onClick={handleLogout} className="nav-btn">
                 Logout
               </button>

@@ -1,37 +1,31 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiFetch, formatBudget, getToken, parseItinerary } from "../services/api";
 import "./SavedTrips.css";
 
 const SavedTrips = () => {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const fetchTrips = React.useCallback(async () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
+  const fetchTrips = useCallback(async () => {
+    if (!getToken()) {
       navigate("/login");
       return;
     }
 
+    setLoading(true);
+    setError("");
     try {
-      const response = await fetch(
-        "http://localhost:8000/api/trips/my_trips/",
-        {
-          headers: {
-            Authorization: `Token ${token}`,
-          },
-        },
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setTrips(data);
-      } else {
-        console.error("Failed to fetch trips");
+      const data = await apiFetch("/trips/my_trips/");
+      setTrips(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (err.status === 401) {
+        navigate("/login");
+        return;
       }
-    } catch (error) {
-      console.error("Error:", error);
+      setError(err.message || "Could not load your trips.");
     } finally {
       setLoading(false);
     }
@@ -44,10 +38,13 @@ const SavedTrips = () => {
   const handleViewTrip = (trip) => {
     navigate("/results", {
       state: {
+        tripId: trip.id,
         destination: trip.destination,
         startDate: trip.start_date,
         endDate: trip.end_date,
-        budget: trip.budget,
+        budget: Number(trip.budget),
+        preferences: trip.preferences,
+        itinerary: parseItinerary(trip.itinerary_data || trip.itinerary),
       },
     });
   };
@@ -58,6 +55,13 @@ const SavedTrips = () => {
 
       {loading ? (
         <div className="loading">Loading your adventures...</div>
+      ) : error ? (
+        <div className="no-trips">
+          <p>{error}</p>
+          <button onClick={fetchTrips} className="start-btn">
+            Try again
+          </button>
+        </div>
       ) : trips.length === 0 ? (
         <div className="no-trips">
           <p>You haven't saved any trips yet.</p>
@@ -71,13 +75,16 @@ const SavedTrips = () => {
             <div key={trip.id} className="trip-card">
               <div className="trip-header-card">
                 <h3>{trip.destination}</h3>
-                <span className="status-badge">Planned</span>
+                <span className="status-badge">
+                  {trip.is_public ? "Shared" : "Planned"}
+                </span>
               </div>
               <div className="trip-details">
                 <p>
-                  📅 {trip.start_date} - {trip.end_date}
+                  📅 {trip.start_date} → {trip.end_date}
                 </p>
-                <p>💰 Budget: {trip.budget}</p>
+                <p>💰 Budget: {formatBudget(trip.budget)}</p>
+                <p>🗓️ {trip.days_count} day{trip.days_count === 1 ? "" : "s"}</p>
               </div>
               <button onClick={() => handleViewTrip(trip)} className="view-btn">
                 View Itinerary

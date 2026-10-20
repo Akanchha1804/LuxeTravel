@@ -43,6 +43,14 @@ class Trip(models.Model):
     fork_count = models.IntegerField(default=0)
     
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["share_code"]),
+        ]
 
     def save(self, *args, **kwargs):
         # Generate share code if not exists
@@ -134,6 +142,9 @@ class ChatRoom(models.Model):
     description = models.TextField(blank=True)
     is_private = models.BooleanField(default=False)
     room_code = models.CharField(max_length=10, unique=True, blank=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="chat_rooms"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

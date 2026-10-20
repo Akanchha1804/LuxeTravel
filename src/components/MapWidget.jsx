@@ -111,7 +111,7 @@ const MapWidget = ({ destination, itinerary }) => {
         popupAnchor: [0, -42],
       });
 
-      const marker = L.marker([location.lat, location.lng], {
+      L.marker([location.lat, location.lng], {
         icon: customIcon,
       }).addTo(mapInstanceRef.current).bindPopup(`
                     <div class="marker-popup">

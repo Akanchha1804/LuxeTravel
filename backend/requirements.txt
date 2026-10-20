@@ -1,8 +1,18 @@
-django
-djangorestframework
-psycopg2-binary
-openai
-googlemaps
-django-cors-headers
-python-dotenv
-google-generativeai
+# Core
+Django>=5.2,<7.0
+djangorestframework>=3.16,<4.0
+django-cors-headers>=4.7,<5.0
+python-dotenv>=1.0,<2.0
+
+# Production serving
+whitenoise>=6.8,<7.0
+gunicorn>=23.0,<24.0
+waitress>=3.0,<4.0  # Windows-friendly WSGI server for `start-live`
+
+# Database (Postgres is used automatically when DATABASE_URL is set)
+dj-database-url>=2.2,<4.0
+psycopg[binary]>=3.2,<4.0
+
+# AI providers (optional - the app falls back to built-in itineraries)
+openai>=1.60,<3.0
+google-genai>=1.0,<2.0

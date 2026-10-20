@@ -1,34 +1,33 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { apiFetch, saveAuth } from "../services/api";
 import "./Auth.css";
 
 const Login = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8000/api/login/", {
+      const data = await apiFetch("/login/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        auth: false,
+        body: { username, password },
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem("token", data.token);
-        navigate("/");
-      } else {
-        setError(data.error || "Login failed");
-      }
+      saveAuth(data.token, data.username, data.email);
+      navigate("/");
     } catch (err) {
-      setError("Something went wrong. Please try again.");
+      setError(err.message || "Login failed. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -39,9 +38,10 @@ const Login = () => {
         {error && <div className="error-msg">{error}</div>}
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
-            <label>Username</label>
+            <label>Username or email</label>
             <input
               type="text"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
@@ -51,13 +51,14 @@ const Login = () => {
             <label>Password</label>
             <input
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>
-          <button type="submit" className="auth-btn">
-            Login
+          <button type="submit" className="auth-btn" disabled={loading}>
+            {loading ? "Signing in..." : "Login"}
           </button>
         </form>
         <div className="auth-link">

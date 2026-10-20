@@ -51,17 +51,33 @@ const Planner = () => {
   };
 
   const handleNext = () => {
-    if (step === 1 && !destination) return alert("Please select a destination");
-    if (step === 2 && (!startDate || !endDate || !budget))
-      return alert("Please fill in all details");
+    if (step === 1 && !destination.trim())
+      return alert("Please select a destination");
+    if (step === 2) {
+      if (!startDate || !endDate || !budget)
+        return alert("Please fill in all details");
+      if (new Date(endDate) < new Date(startDate))
+        return alert("The end date must be on or after the start date");
+      if (budget === "custom" && (!customBudget || Number(customBudget) <= 0))
+        return alert("Please enter a valid budget amount");
+    }
     setStep(step + 1);
   };
 
+  const budgetValues = {
+    budget: 35000,
+    moderate: 100000,
+    luxury: 250000,
+  };
+
   const handleSubmit = () => {
-    const finalBudget = budget === "custom" ? customBudget : budget;
+    const finalBudget =
+      budget === "custom"
+        ? Number(customBudget)
+        : budgetValues[budget] || 50000;
     navigate("/results", {
       state: {
-        destination,
+        destination: destination.trim(),
         startDate,
         endDate,
         budget: finalBudget,
@@ -129,12 +145,14 @@ const Planner = () => {
                 <input
                   type="date"
                   value={startDate}
+                  min={new Date().toISOString().split("T")[0]}
                   onChange={(e) => setStartDate(e.target.value)}
                 />
                 <span className="to">to</span>
                 <input
                   type="date"
                   value={endDate}
+                  min={startDate || new Date().toISOString().split("T")[0]}
                   onChange={(e) => setEndDate(e.target.value)}
                 />
               </div>

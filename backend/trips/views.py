@@ -1,35 +1,64 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.db import connection
+from django.db.models import Q
 from .models import Trip, ChatRoom, UserActivity, Booking, Destination
-from .serializers import TripSerializer, ChatRoomSerializer, MessageSerializer, UserSerializer, UserActivitySerializer, BookingSerializer, DestinationSerializer
-import openai
+from .serializers import (
+    TripSerializer, ChatRoomSerializer, MessageSerializer, UserSerializer,
+    UserActivitySerializer, BookingSerializer, DestinationSerializer,
+    normalize_budget,
+)
+from . import ai, amadeus
 from django.conf import settings
+from django.utils import timezone
 import json
+import logging
 
+logger = logging.getLogger(__name__)
+
+
+class AIAnonThrottle(AnonRateThrottle):
+    scope = 'ai'
+
+
+class AIUserThrottle(UserRateThrottle):
+    scope = 'ai'
+
+
+
+def _preferences_text(value):
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item) for item in value)
+    return value or ""
 
 
 class TripViewSet(viewsets.ModelViewSet):
     queryset = Trip.objects.all()
     serializer_class = TripSerializer
-    permission_classes = [AllowAny]  # Allow anyone to create trips, but my_trips requires auth
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """A user can only ever see and edit their own trips."""
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return Trip.objects.none()
+        if user.is_staff:
+            return Trip.objects.all()
+        return Trip.objects.filter(user=user)
 
     def perform_create(self, serializer):
         """Automatically assign the logged-in user when creating a trip"""
-        if self.request.user.is_authenticated:
-            serializer.save(user=self.request.user)
-        else:
-            serializer.save()
-    
+        serializer.save(user=self.request.user)
+
     def perform_update(self, serializer):
-        """Automatically assign the logged-in user when updating a trip (for Save Trip button)"""
-        if self.request.user.is_authenticated and not serializer.instance.user:
-            serializer.save(user=self.request.user)
-        else:
-            serializer.save()
+        """Keep ownership intact when editing a trip."""
+        serializer.save(user=self.request.user)
 
     def _get_user_context(self, session_id):
         """Fetch user's past activity to provide context for AI"""
@@ -52,24 +81,101 @@ class TripViewSet(viewsets.ModelViewSet):
         
         return "\n".join(context_parts)
 
-    @action(detail=True, methods=['post'])
+    @action(
+        detail=False,
+        methods=['post'],
+        permission_classes=[AllowAny],
+        throttle_classes=[AIAnonThrottle],
+    )
+    def preview(self, request):
+        """Generate an itinerary without saving a trip (used by the results page)."""
+        destination = (request.data.get('destination') or '').strip()
+        start_date = request.data.get('start_date')
+        end_date = request.data.get('end_date')
+
+        if not destination or not start_date or not end_date:
+            return Response(
+                {'error': 'destination, start_date and end_date are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from datetime import date
+            start = date.fromisoformat(str(start_date))
+            end = date.fromisoformat(str(end_date))
+        except ValueError:
+            return Response({'error': 'Dates must be in YYYY-MM-DD format'}, status=400)
+
+        if end < start:
+            return Response({'error': 'end_date must be on or after start_date'}, status=400)
+
+        days_count = (end - start).days + 1
+        budget = normalize_budget(request.data.get('budget'))
+        preferences = _preferences_text(request.data.get('preferences'))
+        travelers = request.data.get('travelers') or 1
+
+        prompt = f"""
+        Generate a realistic {days_count}-day travel itinerary for {destination}.
+        Travelers: {travelers}. Total budget: {budget} INR (~{round(float(budget) / max(days_count, 1))} INR per day).
+        Preferences: {preferences or 'general sightseeing'}.
+
+        REQUIREMENTS:
+        1. Use REAL, SPECIFIC restaurant and landmark names.
+        2. 3-5 activities per day with practical timing.
+        3. Keep the plan achievable for the budget and dates.
+
+        Return ONLY a valid JSON object with this exact structure:
+        {{
+            "days": [
+                {{
+                    "day": 1,
+                    "title": "Theme of the day",
+                    "activities": ["9:00 AM - Visit ...", "1:00 PM - Lunch at ...", "7:00 PM - Dinner at ..."]
+                }}
+            ],
+            "packing_list": ["Item 1", "Item 2"],
+            "mood_board_keywords": ["Keyword 1", "Keyword 2"],
+            "local_transportation": ["Metro", "Taxi", "Tip"]
+        }}
+        """
+
+        try:
+            itinerary = ai.generate_json(
+                prompt,
+                system_prompt=(
+                    "You are an expert travel planner. Return only valid JSON, "
+                    "no markdown and no commentary."
+                ),
+            )
+        except ai.AIUnavailable:
+            return Response(
+                {
+                    'error': 'AI itinerary generation is not configured.',
+                    'code': 'ai_unavailable',
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ai.AIResponseError:
+            return Response(
+                {'error': 'The AI provider returned an unusable response.', 'code': 'ai_error'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not isinstance(itinerary, dict) or not isinstance(itinerary.get('days'), list):
+            return Response(
+                {'error': 'AI returned an unexpected itinerary shape.', 'code': 'ai_error'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({'itinerary': itinerary, 'source': ai.provider_name()})
+
+
+    @action(detail=True, methods=['post'], throttle_classes=[AIUserThrottle, AIAnonThrottle])
     def generate_itinerary(self, request, pk=None):
         trip = self.get_object()
-        
-        # Check for API keys
-        openai_key = getattr(settings, 'OPENAI_API_KEY', None)
-        gemini_key = getattr(settings, 'GEMINI_API_KEY', None)
-        
-        # Determine which AI to use
-        use_openai = openai_key and not openai_key.startswith('your_') and not openai_key.startswith('sk-placeholder')
-        use_gemini = gemini_key and not gemini_key.startswith('your_')
-        
-        print(f"DEBUG: Destination={trip.destination}")
-        print(f"DEBUG: OpenAI Key Present? {bool(use_openai)}")
-        print(f"DEBUG: Gemini Key Present? {bool(use_gemini)}")
 
-        if not use_openai and not use_gemini:
-            print("DEBUG: No valid API key found. Using Generic Fallback.")
+        if not ai.ai_available():
+            logger.info("No AI provider configured; using built-in itinerary for %s", trip.destination)
             # Fallback mock itinerary
             # Destination-specific detailed itineraries (7+ days each)
             destination_itineraries = {
@@ -403,128 +509,109 @@ class TripViewSet(viewsets.ModelViewSet):
             }}
             """
 
-            content = ""
-            
-            if use_openai:
-                print("DEBUG: Attempting to generate with OpenAI...")
-                openai.api_key = openai_key
-                response = openai.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful travel assistant that generates structured JSON itineraries."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                content = response.choices[0].message.content
-                
-            elif use_gemini:
-                print("DEBUG: Attempting to generate with Google Gemini...")
-                import google.generativeai as genai
-                genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel('gemini-pro')
-                response = model.generate_content(prompt)
-                content = response.text
-                # Clean up markdown code blocks if Gemini adds them
-                if content.startswith('```json'):
-                    content = content[7:]
-                if content.endswith('```'):
-                    content = content[:-3]
-
-            print("DEBUG: AI Generation Successful!")
+            itinerary = ai.generate_json(
+                prompt,
+                system_prompt=(
+                    "You are a helpful travel assistant that generates structured "
+                    "JSON itineraries. Return only valid JSON."
+                ),
+            )
+            content = json.dumps(itinerary)
             trip.itinerary = content
-            trip.save()
-            return Response({'status': 'itinerary generated', 'itinerary': content})
-            
-        except Exception as e:
-            print(f"DEBUG: AI Error: {e}")
-            # Fallback to mock on error
+            trip.save(update_fields=["itinerary", "updated_at"])
+            return Response(
+                {
+                    'status': 'itinerary generated',
+                    'itinerary': content,
+                    'source': ai.provider_name(),
+                }
+            )
+
+        except Exception as exc:
+            logger.exception("AI itinerary generation failed for trip %s", trip.pk)
+            # Graceful fallback so the product still works without AI.
             mock_itinerary = {
                 "days": [
                     {
                         "day": 1,
                         "title": "Arrival and Exploration",
-                        "activities": [f"Arrive in {trip.destination}", "Check into hotel", "Evening walk", "Dinner"]
+                        "activities": [
+                            f"Arrive in {trip.destination}",
+                            "Check into your hotel",
+                            "Evening walk in the historic centre",
+                            "Dinner at a highly rated local restaurant",
+                        ],
                     }
                 ],
                 "packing_list": ["Comfortable shoes", "Camera", "Charger"],
-                "mood_board_keywords": [f"{trip.destination}", "travel", "adventure"]
+                "mood_board_keywords": [f"{trip.destination}", "travel", "adventure"],
+                "error": str(exc),
             }
             trip.itinerary = json.dumps(mock_itinerary)
-            trip.save()
-            return Response({'status': 'itinerary generated (fallback)', 'itinerary': trip.itinerary})
+            trip.save(update_fields=["itinerary", "updated_at"])
+            return Response(
+                {
+                    'status': 'itinerary generated (fallback)',
+                    'itinerary': trip.itinerary,
+                    'source': 'fallback',
+                }
+            )
 
-    @action(detail=True, methods=['post'])
+    @action(
+        detail=True,
+        methods=['post'],
+        throttle_classes=[AIAnonThrottle],
+    )
     def refine_itinerary(self, request, pk=None):
         trip = self.get_object()
-        user_instruction = request.data.get('instruction')
-        
+        user_instruction = (request.data.get('instruction') or '').strip()
+
         if not user_instruction:
             return Response({'error': 'Instruction is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check for API keys
-        openai_key = getattr(settings, 'OPENAI_API_KEY', None)
-        gemini_key = getattr(settings, 'GEMINI_API_KEY', None)
-        
-        use_openai = openai_key and not openai_key.startswith('your_') and not openai_key.startswith('sk-placeholder')
-        use_gemini = gemini_key and not gemini_key.startswith('your_')
-
-        if not use_openai and not use_gemini:
-            # Fallback: Return helpful message without AI
+        if not ai.ai_available():
             return Response({
                 'status': 'refinement_unavailable',
-                'message': f'AI refinement requires an API key. Your request: "{user_instruction}" has been noted. To enable AI-powered refinement, please configure OpenAI or Gemini API key in settings.py.',
+                'message': (
+                    'AI refinement is not configured on this deployment. '
+                    'Set OPENAI_API_KEY or GEMINI_API_KEY to enable it.'
+                ),
                 'itinerary': trip.itinerary,
-                'suggestion': 'You can manually regenerate the itinerary or use the current one.'
             }, status=status.HTTP_200_OK)
 
         try:
             days_count = (trip.end_date - trip.start_date).days + 1
-            current_itinerary = trip.itinerary
-            
             prompt = f"""
-            Refine the following {days_count}-day trip itinerary for {trip.destination} based on this user instruction: "{user_instruction}".
-            
+            Refine the following {days_count}-day trip itinerary for {trip.destination}
+            based on this user instruction: "{user_instruction}".
+
             Current Itinerary JSON:
-            {current_itinerary}
-            
+            {trip.itinerary}
+
             REQUIREMENTS:
             1. Keep the JSON structure EXACTLY the same.
             2. Modify activities/restaurants based on the instruction.
             3. Return ONLY valid JSON.
             """
 
-            content = ""
-            
-            if use_openai:
-                openai.api_key = openai_key
-                response = openai.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful travel assistant that modifies structured JSON itineraries."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                content = response.choices[0].message.content
-                
-            elif use_gemini:
-                import google.generativeai as genai
-                genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel('gemini-pro')
-                response = model.generate_content(prompt)
-                content = response.text
-                if content.startswith('```json'):
-                    content = content[7:]
-                if content.endswith('```'):
-                    content = content[:-3]
-
+            itinerary = ai.generate_json(
+                prompt,
+                system_prompt=(
+                    "You edit structured JSON itineraries. Return only valid JSON."
+                ),
+            )
+            content = json.dumps(itinerary)
             trip.itinerary = content
-            trip.save()
+            trip.save(update_fields=["itinerary", "updated_at"])
             return Response({'status': 'itinerary refined', 'itinerary': content})
-            
-        except Exception as e:
-            print(f"Refinement Error: {e}")
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
+        except Exception as exc:
+            logger.exception("Itinerary refinement failed for trip %s", trip.pk)
+            return Response(
+                {'error': 'Could not refine the itinerary right now.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def my_trips(self, request):
         """
@@ -539,34 +626,94 @@ class TripViewSet(viewsets.ModelViewSet):
 class ChatRoomViewSet(viewsets.ModelViewSet):
     queryset = ChatRoom.objects.all()
     serializer_class = ChatRoomSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_authenticated:
+            return ChatRoom.objects.filter(Q(is_private=False) | Q(created_by=user))
+        return ChatRoom.objects.filter(is_private=False)
+
+    def perform_create(self, serializer):
+        serializer.save(
+            created_by=self.request.user if self.request.user.is_authenticated else None
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        room = self.get_object()
+        if room.created_by_id and room.created_by_id != request.user.id and not request.user.is_staff:
+            return Response(
+                {'error': 'Only the room creator can delete this room.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    def _authorized_room(self, request, pk):
+        room = ChatRoom.objects.filter(pk=pk).first()
+        if not room:
+            return None
+        if not room.is_private:
+            return room
+        supplied_code = (
+            request.headers.get('X-Room-Code')
+            or request.query_params.get('code')
+            or request.data.get('room_code')
+        )
+        if request.user.is_authenticated and room.created_by_id == request.user.id:
+            return room
+        if supplied_code and supplied_code.upper() == room.room_code.upper():
+            return room
+        return None
 
     @action(detail=False, methods=['post'])
     def join_private(self, request):
-        code = request.data.get('room_code')
+        code = (request.data.get('room_code') or '').strip().upper()
+        if not code:
+            return Response({'error': 'A room code is required.'}, status=400)
         try:
             room = ChatRoom.objects.get(room_code=code, is_private=True)
-            return Response(ChatRoomSerializer(room).data)
         except ChatRoom.DoesNotExist:
             return Response({'error': 'Invalid room code'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ChatRoomSerializer(room).data)
 
     @action(detail=True, methods=['get', 'post'])
     def messages(self, request, pk=None):
-        room = self.get_object()
+        room = self._authorized_room(request, pk)
+        if not room:
+            return Response(
+                {'error': 'Room not found or you do not have access.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         if request.method == 'GET':
-            messages = room.messages.all()
+            messages = room.messages.all()[:200]
             return Response(MessageSerializer(messages, many=True).data)
-        elif request.method == 'POST':
-            serializer = MessageSerializer(data=request.data)
-            if serializer.is_valid():
-                serializer.save(room=room)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = request.data.copy()
+        if request.user.is_authenticated:
+            payload['sender'] = request.user.username
+        serializer = MessageSerializer(data=payload)
+        if serializer.is_valid():
+            message = serializer.save(room=room)
+            return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UserActivityViewSet(viewsets.ModelViewSet):
     """Track user search activities for AI personalization"""
     queryset = UserActivity.objects.all()
     serializer_class = UserActivitySerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        # Logging is allowed anonymously; reading the log is admin-only.
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAdminUser()]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return UserActivity.objects.all()
+        return UserActivity.objects.none()
     
     def create(self, request, *args, **kwargs):
         """Log user activity"""
@@ -600,9 +747,9 @@ class BookingViewSet(viewsets.ModelViewSet):
         provider = request.data.get('provider')
         payload = request.data.get('payload', {})
         
-        # Validate trip exists and belongs to user
+        # Validate trip exists and belongs to the current user
         try:
-            trip = Trip.objects.get(id=trip_id)
+            trip = Trip.objects.get(id=trip_id, user=user)
         except Trip.DoesNotExist:
             return Response(
                 {'error': 'Trip not found'},
@@ -641,12 +788,13 @@ class BookingViewSet(viewsets.ModelViewSet):
         #         status=status.HTTP_502_BAD_GATEWAY
         #     )
         
-        # Mock response for demo
+        # Mock response for demo (no real ticketing provider is connected yet)
         import uuid
         external_data = {
             'booking_id': f'{provider.upper()}-{uuid.uuid4().hex[:8].upper()}',
-            'status': 'confirmed',
+            'status': 'pending',
             'provider': provider,
+            'demo': True,
             'details': payload
         }
         
@@ -663,7 +811,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(booking)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-class DestinationViewSet(viewsets.ModelViewSet):
+class DestinationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     API endpoint for moodboard destinations with filtering
     """
@@ -699,19 +847,134 @@ def signup(request):
     if serializer.is_valid():
         user = serializer.save()
         token, created = Token.objects.get_or_create(user=user)
-        return Response({'token': token.key, 'user': serializer.data})
-    return Response(serializer.errors, status=400)
+        return Response({'token': token.key, 'username': user.username, 'user': serializer.data})
+    first_error = next(iter(serializer.errors.values()), ['Invalid signup details'])
+    if isinstance(first_error, list) and first_error:
+        first_error = first_error[0]
+    return Response(
+        {'error': str(first_error), 'details': serializer.errors},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
+    username = (request.data.get('username') or '').strip()
+    password = request.data.get('password') or ''
     user = authenticate(username=username, password=password)
+    if not user and username:
+        # Allow login with email address as well as username.
+        match = User.objects.filter(email__iexact=username).first()
+        if match:
+            user = authenticate(username=match.username, password=password)
     if not user:
-        return Response({'error': 'Invalid Credentials'}, status=400)
+        return Response({'error': 'Invalid username or password.'}, status=status.HTTP_400_BAD_REQUEST)
     token, created = Token.objects.get_or_create(user=user)
-    return Response({'token': token.key, 'username': user.username})
+    return Response({'token': token.key, 'username': user.username, 'email': user.email})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me(request):
+    user = request.user
+    return Response({'id': user.id, 'username': user.username, 'email': user.email})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout(request):
+    Token.objects.filter(user=request.user).delete()
+    return Response({'status': 'logged out'})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health(request):
+    database_status = 'ok'
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+    except Exception:
+        logger.exception('Database health check failed')
+        database_status = 'error'
+
+    payload = {
+        'status': 'ok' if database_status == 'ok' else 'degraded',
+        'version': settings.APP_VERSION,
+        'database': database_status,
+        'ai_provider': ai.provider_name(),
+        'travel_api': 'configured' if amadeus.configured() else 'not_configured',
+        'time': timezone.now().isoformat(),
+    }
+    response = Response(payload, status=200 if database_status == 'ok' else 503)
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def travel_flights(request):
+    if not amadeus.configured():
+        return Response({'error': 'Travel API is not configured.', 'code': 'not_configured'}, status=503)
+
+    origin = request.query_params.get('origin')
+    destination = request.query_params.get('destination')
+    departure_date = request.query_params.get('departure_date')
+    if not origin or not destination or not departure_date:
+        return Response(
+            {'error': 'origin, destination and departure_date are required'},
+            status=400,
+        )
+
+    try:
+        data = amadeus.search_flights(
+            origin,
+            destination,
+            departure_date,
+            request.query_params.get('return_date'),
+            request.query_params.get('adults', 1),
+        )
+    except amadeus.AmadeusError:
+        return Response({'error': 'Flight search is temporarily unavailable.'}, status=502)
+    except Exception:
+        logger.exception('Unexpected flight search failure')
+        return Response({'error': 'Flight search is temporarily unavailable.'}, status=502)
+
+    return Response({'results': data, 'source': 'amadeus'})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def travel_hotels(request):
+    if not amadeus.configured():
+        return Response({'error': 'Travel API is not configured.', 'code': 'not_configured'}, status=503)
+
+    destination = request.query_params.get('destination')
+    check_in = request.query_params.get('check_in')
+    check_out = request.query_params.get('check_out')
+    if not destination or not check_in or not check_out:
+        return Response(
+            {'error': 'destination, check_in and check_out are required'},
+            status=400,
+        )
+
+    try:
+        data = amadeus.search_hotels(
+            destination,
+            check_in,
+            check_out,
+            request.query_params.get('adults', 1),
+        )
+    except amadeus.AmadeusError:
+        return Response({'error': 'Hotel search is temporarily unavailable.'}, status=502)
+    except Exception:
+        logger.exception('Unexpected hotel search failure')
+        return Response({'error': 'Hotel search is temporarily unavailable.'}, status=502)
+
+    return Response({'results': data, 'source': 'amadeus'})
+
 
 # Phase 4: Social & Collaboration Endpoints
 
@@ -798,7 +1061,8 @@ def create_trip_chatroom(request, trip_id):
         chatroom = ChatRoom.objects.create(
             name=f"{trip.destination} Trip Chat",
             description=f"Private chat for {trip.destination} trip ({trip.start_date} - {trip.end_date})",
-            is_private=True
+            is_private=True,
+            created_by=request.user,
         )
         
         trip.chat_room = chatroom

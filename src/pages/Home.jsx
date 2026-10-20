@@ -62,7 +62,7 @@ const Home = () => {
           <FeatureCard
             icon="fas fa-suitcase"
             title="Packing Assistant"
-            desc="AI-generated packing lists tailored to your trip"
+            desc="Destination-aware packing lists for every trip"
             onClick={() => navigate("/planner")}
           />
           <FeatureCard
@@ -77,16 +77,16 @@ const Home = () => {
       {/* Stats Section */}
       <section className="stats-section">
         <div className="stat-item">
-          <h3>10K+</h3>
-          <p>Trips Planned</p>
+          <h3>3 steps</h3>
+          <p>From idea to itinerary</p>
         </div>
         <div className="stat-item">
-          <h3>150+</h3>
-          <p>Destinations</p>
+          <h3>10+</h3>
+          <p>Curated destinations</p>
         </div>
         <div className="stat-item">
-          <h3>98%</h3>
-          <p>Satisfaction</p>
+          <h3>24/7</h3>
+          <p>Trip chatrooms</p>
         </div>
       </section>
 

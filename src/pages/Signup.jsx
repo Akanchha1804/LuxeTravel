@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { apiFetch, saveAuth } from "../services/api";
 import "./Auth.css";
 
 const Signup = () => {
@@ -9,6 +10,7 @@ const Signup = () => {
     password: "",
   });
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -18,24 +20,21 @@ const Signup = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8000/api/signup/", {
+      const data = await apiFetch("/signup/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        auth: false,
+        body: formData,
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem("token", data.token);
-        navigate("/");
-      } else {
-        setError(data.error || "Signup failed");
-      }
+      saveAuth(data.token, data.username, formData.email);
+      navigate("/");
     } catch (err) {
-      setError("Something went wrong. Please try again.");
+      setError(err.message || "Signup failed. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -50,8 +49,10 @@ const Signup = () => {
             <input
               type="text"
               name="username"
+              autoComplete="username"
               value={formData.username}
               onChange={handleChange}
+              minLength={3}
               required
             />
           </div>
@@ -60,6 +61,7 @@ const Signup = () => {
             <input
               type="email"
               name="email"
+              autoComplete="email"
               value={formData.email}
               onChange={handleChange}
               required
@@ -70,13 +72,16 @@ const Signup = () => {
             <input
               type="password"
               name="password"
+              autoComplete="new-password"
               value={formData.password}
               onChange={handleChange}
+              minLength={8}
               required
             />
+            <small className="form-hint">At least 8 characters.</small>
           </div>
-          <button type="submit" className="auth-btn">
-            Sign Up
+          <button type="submit" className="auth-btn" disabled={loading}>
+            {loading ? "Creating account..." : "Sign Up"}
           </button>
         </form>
         <div className="auth-link">
