@@ -12,9 +12,21 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import SharedTrip from "./pages/SharedTrip";
 
+// GitHub Pages serves the app from /<repo>/, so React Router needs a basename
+// there. The single-service Django build has no PUBLIC_URL and needs none.
+function routerBasename() {
+  const publicUrl = process.env.PUBLIC_URL || "";
+  if (!publicUrl.startsWith("http")) return undefined;
+  try {
+    return new URL(publicUrl).pathname.replace(/\/$/, "");
+  } catch (error) {
+    return undefined;
+  }
+}
+
 function App() {
   return (
-    <Router>
+    <Router basename={routerBasename()}>
       <Navbar />
       <Routes>
         <Route path="/" element={<Home />} />
